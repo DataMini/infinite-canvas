@@ -1,41 +1,45 @@
-name: Docker image
+name: infinite-canvas-image-builder
 
 on:
   push:
-    tags: ["v*"]
+    branches:
+      - main
+    tags:
+      - "v*.*.*"
   workflow_dispatch:
 
-permissions:
-  contents: read
-  packages: write
+env:
+  ALIYUN_REGISTRY: registry.cn-shanghai.aliyuncs.com
+  ALIYUN_NAMESPACE: datamini
+  IMAGE_NAME: infinite-canvas
 
 jobs:
-  build:
+  build-image:
     runs-on: ubuntu-latest
+    name: Build Docker Image
+
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout code
+        uses: actions/checkout@v4
 
-      - uses: docker/setup-buildx-action@v3
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
-      - uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - id: meta
-        uses: docker/metadata-action@v5
-        with:
-          images: ghcr.io/${{ github.repository }}
-          tags: |
-            type=ref,event=tag
-            type=sha,prefix=
+      - name: Login to Aliyun Docker Registry
+        run: echo "${{ secrets.ALIYUN_DOCKER_REGISTRY_PASSWORD }}" | docker login --username="${{ secrets.ALIYUN_DOCKER_REGISTRY_USER }}" --password-stdin "${{ env.ALIYUN_REGISTRY }}"
 
-      - uses: docker/build-push-action@v6
+      - name: Build, tag and push Docker image
+        uses: docker/build-push-action@v6
         with:
           context: .
+          file: ./Dockerfile
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          platforms: linux/amd64
+          tags: |
+            ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_NAMESPACE }}/${{ env.IMAGE_NAME }}:latest
+            ${{ env.ALIYUN_REGISTRY }}/${{ env.ALIYUN_NAMESPACE }}/${{ env.IMAGE_NAME }}:sha-${{ github.sha }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
