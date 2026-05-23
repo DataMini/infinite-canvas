@@ -13,10 +13,11 @@ export enum CanvasNodeType {
     Image = "image",
     Text = "text",
     Config = "config",
+    Video = "video",
 }
 
 export type CanvasNodeStatus = "idle" | "success" | "loading" | "error";
-export type CanvasGenerationMode = "text" | "image";
+export type CanvasGenerationMode = "text" | "image" | "video";
 export type CanvasImageGenerationType = "generation" | "edit";
 
 export type CanvasNodeMetadata = {
@@ -31,6 +32,8 @@ export type CanvasNodeMetadata = {
     size?: string;
     quality?: string;
     count?: number;
+    seconds?: string;
+    vquality?: string;
     references?: string[];
     naturalWidth?: number;
     naturalHeight?: number;
