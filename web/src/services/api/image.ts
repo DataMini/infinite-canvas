@@ -23,7 +23,20 @@ const QUALITY_BASE: Record<string, number> = {
     low: 1024,
     medium: 2048,
     high: 2880,
+    standard: 1024,
+    hd: 2048,
 };
+const QUALITY_ALIASES: Record<string, string> = {
+    "1k": "low",
+    "2k": "medium",
+    "4k": "high",
+};
+
+function normalizeQuality(quality: string) {
+    const value = quality.trim().toLowerCase();
+    const normalized = QUALITY_ALIASES[value] || value;
+    return QUALITY_BASE[normalized] ? normalized : undefined;
+}
 
 /** Map "quality + ratio" to an explicit pixel dimension like "3840x2160". Returns undefined when quality is auto. */
 function resolveSize(quality: string, ratio: string): string | undefined {
@@ -121,6 +134,10 @@ function aiHeaders(config: AiConfig, contentType?: string) {
           };
 }
 
+function refreshRemoteUser(config: AiConfig) {
+    if (config.channelMode === "remote") void useUserStore.getState().hydrateUser();
+}
+
 function withSystemMessage(config: AiConfig, messages: ChatCompletionMessage[]) {
     const systemPrompt = config.systemPrompt.trim();
     return systemPrompt ? [{ role: "system" as const, content: systemPrompt }, ...messages] : messages;
@@ -128,7 +145,8 @@ function withSystemMessage(config: AiConfig, messages: ChatCompletionMessage[]) 
 
 export async function requestGeneration(config: AiConfig, prompt: string) {
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
-    const pixelSize = resolveSize(config.quality, config.size);
+    const quality = normalizeQuality(config.quality);
+    const pixelSize = quality ? resolveSize(quality, config.size) : undefined;
     try {
         const response = await axios.post<ImageApiResponse>(
             aiApiUrl(config, "/images/generations"),
@@ -136,14 +154,17 @@ export async function requestGeneration(config: AiConfig, prompt: string) {
                 model: config.model,
                 prompt: withSystemPrompt(config, prompt),
                 n,
-                ...(pixelSize ? { quality: config.quality, size: pixelSize } : {}),
+                ...(quality ? { quality } : {}),
+                ...(pixelSize ? { size: pixelSize } : {}),
                 response_format: "b64_json",
             },
             {
                 headers: aiHeaders(config, "application/json"),
             },
         );
-        return parseImagePayload(response.data);
+        const images = parseImagePayload(response.data);
+        refreshRemoteUser(config);
+        return images;
     } catch (error) {
         throw new Error(readAxiosError(error, "请求失败"));
     }
@@ -151,14 +172,17 @@ export async function requestGeneration(config: AiConfig, prompt: string) {
 
 export async function requestEdit(config: AiConfig, prompt: string, references: ReferenceImage[]) {
     const n = Math.max(1, Math.min(15, Math.floor(Math.abs(Number(config.count)) || 1)));
-    const pixelSize = resolveSize(config.quality, config.size);
+    const quality = normalizeQuality(config.quality);
+    const pixelSize = quality ? resolveSize(quality, config.size) : undefined;
     const formData = new FormData();
     formData.set("model", config.model);
     formData.set("prompt", withSystemPrompt(config, prompt));
     formData.set("n", String(n));
     formData.set("response_format", "b64_json");
+    if (quality) {
+        formData.set("quality", quality);
+    }
     if (pixelSize) {
-        formData.set("quality", config.quality);
         formData.set("size", pixelSize);
     }
     const files = await Promise.all(references.map(async (image) => dataUrlToFile({ ...image, dataUrl: await imageToDataUrl(image) })));
@@ -166,7 +190,9 @@ export async function requestEdit(config: AiConfig, prompt: string, references: 
 
     try {
         const response = await axios.post<ImageApiResponse>(aiApiUrl(config, "/images/edits"), formData, { headers: aiHeaders(config) });
-        return parseImagePayload(response.data);
+        const images = parseImagePayload(response.data);
+        refreshRemoteUser(config);
+        return images;
     } catch (error) {
         throw new Error(readAxiosError(error, "请求失败"));
     }
@@ -230,6 +256,7 @@ export async function requestImageQuestion(config: AiConfig, messages: ChatCompl
     } catch (error) {
         throw new Error(readAxiosError(error, "请求失败"));
     }
+    refreshRemoteUser(config);
     return answer || "没有返回内容";
 }
 
